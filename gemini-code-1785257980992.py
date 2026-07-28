@@ -14,7 +14,7 @@ def send_welcome(message):
   bot.reply_to(
       message,
       "Привет! Я твой книжный бот 📚\nНапиши название книги или автора,"
-      " и я найду и пришлю готовый файл прямо в чат!",
+      " и я пришлю готовый файл прямо в чат!",
       parse_mode="Markdown",
   )
 
@@ -23,20 +23,22 @@ def send_welcome(message):
 def search_and_send_book(message):
   query = message.text.strip()
   bot.send_message(
-      message.chat.id,
-      f"🔎 Ищу файлы для скачивания по запросу «{query}»...",
+      message.chat.id, f"🔎 Ищу файлы по запросу «{query}», подожди..."
   )
 
   try:
-    # Ищем через стабильный архивный каталог с прямыми файлами
     api_url = f"https://gutendex.com/books?search={requests.utils.quote(query)}"
-    response = requests.get(api_url, timeout=12)
+    response = requests.get(api_url, timeout=15)
 
     if response.status_code == 200:
-      results = response.json().get("results", [])
+      data = response.json()
+      results = data.get("results", [])
       sent_count = 0
 
       for book in results:
+        if sent_count >= 2:  # Отправляем максимум 2 файла, чтобы не перегружать чат
+          break
+
         title = book.get("title", "Без названия")
         authors_list = book.get("authors", [])
         author = (
@@ -50,7 +52,6 @@ def search_and_send_book(message):
         target_url = None
         file_ext = ".epub"
 
-        # Ищем именно файлы для скачивания
         for mime, url in formats.items():
           if "epub" in mime:
             target_url = url
@@ -60,53 +61,46 @@ def search_and_send_book(message):
             target_url = url
             file_ext = ".pdf"
             break
-          elif "mobipocket-ebook" in mime:
-            target_url = url
-            file_ext = ".mobi"
-            break
 
         if target_url:
-          file_res = requests.get(target_url, timeout=15)
-          if file_res.status_code == 200:
-            safe_title = (
-                title.replace("/", "_")
-                .replace("\\", "_")
-                .replace(":", "_")[:40]
-            )
-            file_name = f"{safe_title}{file_ext}"
-
-            with open(file_name, "wb") as f:
-              f.write(file_res.content)
-
-            with open(file_name, "rb") as doc:
-              bot.send_document(
-                  message.chat.id,
-                  doc,
-                  caption=(
-                      f"📖 *{title}*\n✍️ Автор: `{author}`\n🌐 Язык:"
-                      f" `{languages}`\n📁 Формат: `{file_ext.upper()[1:]}`"
-                  ),
-                  parse_mode="Markdown",
+          try:
+            file_res = requests.get(target_url, timeout=15)
+            if file_res.status_code == 200:
+              safe_title = (
+                  title.replace("/", "_")
+                  .replace("\\", "_")
+                  .replace(":", "_")[:30]
               )
+              file_name = f"{safe_title}{file_ext}"
 
-            os.remove(file_name)
-            sent_count += 1
+              with open(file_name, "wb") as f:
+                f.write(file_res.content)
 
-            # Отправляем до 3 файлов, чтобы не засорять чат
-            if sent_count >= 3:
-              break
+              with open(file_name, "rb") as doc:
+                bot.send_document(
+                    message.chat.id,
+                    doc,
+                    caption=(
+                        f"📖 *{title}*\n✍️ Автор: `{author}`\n🌐 Язык:"
+                        f" `{languages}`\n📁 Формат: `{file_ext.upper()[1:]}`"
+                    ),
+                    parse_mode="Markdown",
+                )
+
+              os.remove(file_name)
+              sent_count += 1
+          except Exception:
+            continue
 
       if sent_count == 0:
         bot.reply_to(
             message,
-            "К сожалению, по этому запросу прямых файлов для скачивания не"
-            " нашлось. Попробуй ввести название на английском языке (например,"
-            " *Alice* или *Frankenstein*).",
+            "К сожалению, по этому запросу файлы для скачивания не найдены.",
         )
     else:
-      bot.reply_to(message, "Ошибка при обращении к базе. Попробуй еще раз.")
-  except Exception as e:
-    bot.reply_to(message, "Произошла ошибка при поиске файла.")
+      bot.reply_to(message, "Сервер каталога временно недоступен.")
+  except Exception:
+    bot.reply_to(message, "Слишком долгий ответ от базы. Попробуй еще раз.")
 
 
 # --- Веб-сервер Flask (для Render) ---
