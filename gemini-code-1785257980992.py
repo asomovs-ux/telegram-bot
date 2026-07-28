@@ -13,9 +13,9 @@ bot = telebot.TeleBot(TOKEN)
 def send_welcome(message):
   bot.reply_to(
       message,
-      "Привет! Я книжный бот «Книжная полка» 📚\nНапиши автора или название"
-      " книги (например, *Remarque*, *King* или *Alice*), и я найду для тебя"
-      " файлы в формате .epub.",
+      "Привет! Я книжный бот «Книжная полка» 📚\nНапиши название книги или"
+      " автора (например, *King*, *Orwell* или *Remarque*), и я найду для тебя"
+      " файлы.",
       parse_mode="Markdown",
   )
 
@@ -24,75 +24,48 @@ def send_welcome(message):
 def search_books(message):
   query = message.text.strip()
   bot.send_message(
-      message.chat.id, f"🔎 Ищу книги по запросу «{query}» в открытых каталогах..."
+      message.chat.id, f"🔎 Ищу книги по запросу «{query}» в открытой базе..."
   )
 
-  found_books = []
-
   try:
-    api_url = f"https://gutendex.com/books?search={requests.utils.quote(query)}"
-    response = requests.get(api_url, timeout=7)
+    # Используем стабильный поиск по библиотеке Open Library
+    url = f"https://openlibrary.org/search.json?q={requests.utils.quote(query)}"
+    response = requests.get(url, timeout=7)
 
     if response.status_code == 200:
       data = response.json()
-      results = data.get("results", [])
+      docs = data.get("docs", [])
 
-      for book in results[:6]:
-        title = book.get("title", "Без названия")
-        languages = ", ".join(book.get("languages", ["en"])).upper()
+      found = 0
+      for doc in docs[:5]:
+        title = doc.get("title", "Без названия")
+        author = ", ".join(doc.get("author_name", ["Неизвестен"]))
 
-        formats = book.get("formats", {})
-        epub_url = None
-        for mime, url in formats.items():
-          if "epub" in mime:
-            epub_url = url
-            break
+        # Идемходим ID для ссылки на чтение/скачивание
+        epub_link = f"https://openlibrary.org{doc.get('key', '')}"
 
-        if epub_url:
-          authors_list = book.get("authors", [])
-          author_name = (
-              authors_list[0].get("name", "Неизвестен")
-              if authors_list
-              else "Неизвестен"
-          )
+        markup = types.InlineKeyboardMarkup()
+        btn = types.InlineKeyboardButton(
+            text="📥 Открыть / Скачать", url=epub_link
+        )
+        markup.add(btn)
 
-          found_books.append({
-              "title": title,
-              "author": author_name,
-              "lang": languages,
-              "url": epub_url,
-          })
+        bot.send_message(
+            message.chat.id,
+            f"📖 *{title}* \n✍️ Автор: `{author}`",
+            parse_mode="Markdown",
+            reply_markup=markup,
+        )
+        found += 1
+
+      if found == 0:
+        bot.reply_to(
+            message, f"К сожалению, по запросу «{query}» ничего не нашлось."
+        )
+    else:
+      bot.reply_to(message, "Ошибка при обращении к библиотеке. Попробуй позже.")
   except Exception as e:
-    pass
-
-  if found_books:
-    bot.send_message(
-        message.chat.id,
-        f"✅ Нашел книги по запросу «{query}». Выбирай и скачивай:",
-    )
-
-    for book in found_books:
-      markup = types.InlineKeyboardMarkup()
-      btn = types.InlineKeyboardButton(
-          text="📥 Скачать .epub", url=book["url"]
-      )
-      markup.add(btn)
-
-      bot.send_message(
-          message.chat.id,
-          f"📖 *{book['title']}*\n✍️ Автор: `{book['author']}`\n🌐 Язык:"
-          f" `{book['lang']}`",
-          parse_mode="Markdown",
-          reply_markup=markup,
-      )
-  else:
-    bot.reply_to(
-        message,
-        f"К сожалению, по запросу «{query}» ничего не найдено. Попробуй ввести"
-        " название на английском или немецком языке (например, *Remarque* или"
-        " *Frankenstein*).",
-        parse_mode="Markdown",
-    )
+    bot.reply_to(message, "Произошла ошибка при поиске.")
 
 
 # --- Веб-сервер Flask (для Render) ---
