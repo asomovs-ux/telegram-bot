@@ -1,18 +1,16 @@
-import telebot
+from flask import Flask
+import threading
+import os
 
-TOKEN = '8887050197:AAF4SC3qXjsZaa7ARGLwKqM-S2ueF2cMjaM'
+app = Flask(__name__)
 
-bot = telebot.TeleBot(TOKEN)
+@app.route('/')
+def home():
+    return "Bot is alive!"
 
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "Привет! Я бот «Книжная полка» для поиска EPUB книг. Напиши мне название, и скоро я научусь его искать!")
+def run_web():
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
-@bot.message_handler(content_types=['text'])
-def handle_text(message):
-    bot.send_message(message.chat.id, f"Ты ищешь: {message.text}\nПока что я только учусь, но скоро тут будет поиск по библиотекам!")
-
-# Запуск бота
-if __name__ == '__main__':
-    print("Бот запускается...")
-    bot.polling(none_stop=True)
+web_thread = threading.Thread(target=run_web)
+web_thread.start()
