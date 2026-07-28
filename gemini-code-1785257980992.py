@@ -9,21 +9,22 @@ from telebot import types
 TOKEN = "8887050197:AAF4SC3qXjsZaa7ARGLwKqM-S2ueF2cMjaM"
 bot = telebot.TeleBot(TOKEN)
 
+# Временное хранилище результатов поиска для кнопок
+search_cache = {}
+
 
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
   bot.reply_to(
       message,
-      "Привет! Я книжный бот 📚\nНапиши название книги или автора (или"
-      " используй команду, например `/братья Стругацкие`), и я выведу список с"
-      " кнопками выбора!",
+      "Привет! Я книжный бот 📚\nНапиши название книги или автора, и я выведу"
+      " список с интерактивными кнопками!",
       parse_mode="Markdown",
   )
 
 
 @bot.message_handler(func=lambda message: True)
 def search_books(message):
-  # Убираем слеш, если пользователь написал команду вроде /братья Стругацкие
   query = message.text.lstrip("/").strip()
   if not query:
     return
@@ -45,50 +46,94 @@ def search_books(message):
         bot.reply_to(message, "К сожалению, по этому запросу ничего не нашлось.")
         return
 
-      # Формируем красивый список как на вашем скриншоте
-      response_text = ""
+      response_text = f"📚 *Результаты по запросу: {query}*\n\n"
       markup = types.InlineKeyboardMarkup(row_width=4)
       buttons = []
 
-      # Берем до 8 вариантов, чтобы поместились на экран и в кнопки
+      # Сохраняем в кэш для этого чата
+      chat_id = message.chat.id
+      search_cache[chat_id] = []
+
       for index, doc in enumerate(docs[:8], start=1):
         title = doc.get("title", "Без названия")
         authors_list = doc.get("author_name", ["Неизвестен"])
         author = authors_list[0] if authors_list else "Неизвестен"
 
-        # Ограничиваем длину текста для красоты
-        if len(title) > 45:
-          title = title[:42] + "..."
+        if len(title) > 40:
+          title = title[:37] + "..."
 
-        response_text += (
-            f"*{index}* Компактно: *{title}* — `{author}`\n\n"
-            if False
-            else f"*{index}* {title} — *{author}*\n\n"
+        response_text += f"*{index}* {title} — *{author}*\n\n"
+
+        ia_list = doc.get("ia", [])
+        search_cache[chat_id].append(
+            {"title": title, "author": author, "ia": ia_list}
         )
 
-        # Создаем кнопку для каждого номера
-        key = doc.get("key", "")
-        book_url = (
-            f"https://openlibrary.org{key}" if key else "https://openlibrary.org"
-        )
+        # Создаем callback-кнопку (чтобы бот отлавливал нажатие внутри чата)
         buttons.append(
-            types.InlineKeyboardButton(text=str(index), url=book_url)
+            types.InlineKeyboardButton(
+                text=str(index), callback_data=f"book_{index-1}"
+            )
         )
 
-      # Добавляем кнопки рядами по 4 штуки
       markup.add(*buttons)
+      # Добавляем нижнюю панель навигации в стиле примера
+      markup.row(
+          types.InlineKeyboardButton(text="1 / 1", callback_data="page_info"),
+          types.InlineKeyboardButton(text=">", callback_data="next_page"),
+      )
 
-      # Отправляем единым сообщением со списком и кнопками
       bot.send_message(
-          message.chat.id,
+          chat_id,
           response_text.strip(),
           parse_mode="Markdown",
           reply_markup=markup,
       )
     else:
-      bot.reply_to(message, "Сервер библиотеки временно занят. Попробуй еще раз.")
+      bot.reply_to(message, "Сервер библиотеки временно занят.")
   except Exception:
-    bot.reply_to(message, "Произошла ошибка при поиске. Попробуй другой запрос.")
+    bot.reply_to(message, "Произошла ошибка при поиске.")
+
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_handler(call):
+  chat_id = call.message.chat.id
+  data = call.data
+
+  if data.startswith("book_"):
+    index = int(data.split("_")[1])
+    books = search_cache.get(chat_id, [])
+
+    if index < len(books):
+      book = books[index]
+      title = book["title"]
+      author = book["author"]
+      ia_list = book["ia"]
+
+      bot.answer_callback_query(call.id, text=f"Выбрано: {title}")
+
+      if ia_list:
+        identifier = ia_list[0]
+        download_url = (
+            f"https://archive.org/download/{identifier}/{identifier}.epub"
+        )
+        bot.send_message(
+            chat_id,
+            f"📖 *{title}*\n✍️ Автор: `{author}`\n📥 Ссылка на скачивание:"
+            f" [Нажми сюда]({download_url})",
+            parse_mode="Markdown",
+        )
+      else:
+        bot.send_message(
+            chat_id,
+            f"📖 *{title}*\n✍️ Автор: `{author}`\n*(Прямой файл для этой книги в"
+            " архиве отсутствует)*",
+            parse_mode="Markdown",
+        )
+    else:
+      bot.answer_callback_query(call.id, text="Информация устарела.")
+  elif data == "next_page" or data == "page_info":
+    bot.answer_callback_query(call.id, text="Показана первая страница выдачи.")
 
 
 # --- Веб-сервер Flask (для Render) ---
