@@ -4,7 +4,7 @@ from flask import Flask
 import telebot
 
 # Вставь свой токен Telegram-бота вместо кавычек
-TOKEN = 8887050197:AAF4SC3qXjsZaa7ARGLwKqM-S2ueF2cMjaM
+TOKEN = "8887050197:AAF4SC3qXjsZaa7ARGLwKqM-S2ueF2cMjaM"
 bot = telebot.TeleBot(TOKEN)
 
 
