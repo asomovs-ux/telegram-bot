@@ -1,4 +1,4 @@
-pyTelegramBotAPI
-Flask
+flask
 requests
-defusedxml
+pyTelegramBotAPI
+beautifulsoup4
