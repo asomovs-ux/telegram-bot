@@ -30,7 +30,6 @@ def search_books(message):
   found_books = []
 
   try:
-    # Используем официальный открытый API Project Gutenberg для поиска книг
     api_url = f"https://gutendex.com/books?search={requests.utils.quote(query)}"
     response = requests.get(api_url, timeout=7)
 
@@ -38,11 +37,10 @@ def search_books(message):
       data = response.json()
       results = data.get("results", [])
 
-      for book in results[:6]:  рассматриваем первые 6 результатов
+      for book in results[:6]:
         title = book.get("title", "Без названия")
         languages = ", ".join(book.get("languages", ["en"])).upper()
 
-        # Ищем прямую ссылку на epub формат в форматах книги
         formats = book.get("formats", {})
         epub_url = None
         for mime, url in formats.items():
