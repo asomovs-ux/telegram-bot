@@ -13,32 +13,38 @@ bot = telebot.TeleBot(TOKEN)
 def send_welcome(message):
   bot.reply_to(
       message,
-      "Привет! Я твой книжный бот 📚\nНапиши название книги или автора,"
-      " и я пришлю готовый файл прямо в чат!",
+      "Привет! Я книжный бот 📚\nНапиши название книги или автора, и я найду"
+      " для тебя варианты с обложками и кнопками скачивания в разных"
+      " форматах!",
       parse_mode="Markdown",
   )
 
 
 @bot.message_handler(func=lambda message: True)
-def search_and_send_book(message):
+def search_books(message):
   query = message.text.strip()
   bot.send_message(
-      message.chat.id, f"🔎 Ищу файлы по запросу «{query}», подожди..."
+      message.chat.id, f"🔎 Ищу книги и доступные форматы по запросу «{query}»..."
   )
 
   try:
     api_url = f"https://gutendex.com/books?search={requests.utils.quote(query)}"
-    response = requests.get(api_url, timeout=15)
+    response = requests.get(api_url, timeout=12)
 
     if response.status_code == 200:
       data = response.json()
       results = data.get("results", [])
+
+      if not results:
+        bot.reply_to(
+            message,
+            "К сожалению, по этому запросу ничего не нашлось. Попробуй другое"
+            " название.",
+        )
+        return
+
       sent_count = 0
-
-      for book in results:
-        if sent_count >= 2:  # Отправляем максимум 2 файла, чтобы не перегружать чат
-          break
-
+      for book in results[:3]:  # Показываем до 3 вариантов
         title = book.get("title", "Без названия")
         authors_list = book.get("authors", [])
         author = (
@@ -48,59 +54,82 @@ def search_and_send_book(message):
         )
         languages = ", ".join(book.get("languages", ["en"])).upper()
 
+        # Ищем обложку книги (обычно image/jpeg)
         formats = book.get("formats", {})
-        target_url = None
-        file_ext = ".epub"
+        cover_url = None
+        for mime, url in formats.items():
+          if "image/jpeg" in mime:
+            cover_url = url
+            break
+
+        # Создаем клавиатуру с несколькими форматами для скачивания
+        markup = types.InlineKeyboardMarkup()
+        has_formats = False
 
         for mime, url in formats.items():
           if "epub" in mime:
-            target_url = url
-            file_ext = ".epub"
-            break
-          elif "pdf" in mime:
-            target_url = url
-            file_ext = ".pdf"
-            break
-
-        if target_url:
-          try:
-            file_res = requests.get(target_url, timeout=15)
-            if file_res.status_code == 200:
-              safe_title = (
-                  title.replace("/", "_")
-                  .replace("\\", "_")
-                  .replace(":", "_")[:30]
-              )
-              file_name = f"{safe_title}{file_ext}"
-
-              with open(file_name, "wb") as f:
-                f.write(file_res.content)
-
-              with open(file_name, "rb") as doc:
-                bot.send_document(
-                    message.chat.id,
-                    doc,
-                    caption=(
-                        f"📖 *{title}*\n✍️ Автор: `{author}`\n🌐 Язык:"
-                        f" `{languages}`\n📁 Формат: `{file_ext.upper()[1:]}`"
-                    ),
-                    parse_mode="Markdown",
+            markup.add(
+                types.InlineKeyboardButton(
+                    text="📥 Скачать .EPUB", url=url
                 )
+            )
+            has_formats = True
+          elif "pdf" in mime:
+            markup.add(
+                types.InlineKeyboardButton(text="📥 Скачать .PDF", url=url)
+            )
+            has_formats = True
+          elif "plain" in mime and "utf-8" in mime:
+            markup.add(
+                types.InlineKeyboardButton(text="📥 Скачать .TXT", url=url)
+            )
+            has_formats = True
 
-              os.remove(file_name)
-              sent_count += 1
+        if not has_formats:
+          continue
+
+        caption = (
+            f"📖 *{title}*\n✍️ Автор: `{author}`\n🌐 Язык: `{languages}`"
+        )
+
+        # Отправляем сообщение с обложкой (если она есть) или текстовую карточку
+        if cover_url:
+          try:
+            bot.send_photo(
+                message.chat.id,
+                cover_url,
+                caption=caption,
+                parse_mode="Markdown",
+                reply_markup=markup,
+            )
           except Exception:
-            continue
+            bot.send_message(
+                message.chat.id,
+                caption,
+                parse_mode="Markdown",
+                reply_markup=markup,
+            )
+        else:
+          bot.send_message(
+              message.chat.id,
+              caption,
+              parse_mode="Markdown",
+              reply_markup=markup,
+          )
+
+        sent_count += 1
+        if sent_count >= 3:
+          break
 
       if sent_count == 0:
         bot.reply_to(
             message,
-            "К сожалению, по этому запросу файлы для скачивания не найдены.",
+            "Книги найдены, но у них нет открытых файлов для скачивания.",
         )
     else:
-      bot.reply_to(message, "Сервер каталога временно недоступен.")
+      bot.reply_to(message, "Ошибка при обращении к базе данных.")
   except Exception:
-    bot.reply_to(message, "Слишком долгий ответ от базы. Попробуй еще раз.")
+    bot.reply_to(message, "Произошла ошибка при поиске. Попробуй еще раз.")
 
 
 # --- Веб-сервер Flask (для Render) ---
